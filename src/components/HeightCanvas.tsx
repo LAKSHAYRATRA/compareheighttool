@@ -93,7 +93,10 @@ export function HeightCanvas({
   // Dragging state
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const dragStartXRef = useRef<number>(0);
+  const dragStartYRef = useRef<number>(0);
   const initialOffsetRef = useRef<number>(0);
+  const pendingTouchEntityIdRef = useRef<string | null>(null);
+  const isHorizontalDragRef = useRef<boolean>(false);
 
   const canvasRef = useRef<HTMLDivElement>(null);
 
@@ -118,8 +121,8 @@ export function HeightCanvas({
   // Canvas scaling bounds: Base height max between 225cm or tallest entity + margin
   const maxHeight = Math.max(225, ...entities.map((e) => e.heightCm)) * 1.14;
 
-  // Dragging handlers (Mouse + Touch for mobile/desktop parity)
-  const handlePointerDown = (id: string, clientX: number) => {
+  // Mouse Dragging handler
+  const handleMouseDown = (id: string, clientX: number) => {
     const ent = entities.find((e) => e.id === id);
     if (!ent) return;
     setDraggingId(id);
@@ -127,14 +130,23 @@ export function HeightCanvas({
     initialOffsetRef.current = ent.xOffset || 0;
   };
 
-  useEffect(() => {
-    const handlePointerMove = (e: MouseEvent | TouchEvent) => {
-      if (!draggingId) return;
-      const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
-      const deltaX = clientX - dragStartXRef.current;
-      const newOffset = initialOffsetRef.current + deltaX;
+  // Touch Start handler: records starting point without locking vertical scroll
+  const handleTouchStart = (id: string, touch: React.Touch) => {
+    const ent = entities.find((e) => e.id === id);
+    if (!ent) return;
+    pendingTouchEntityIdRef.current = id;
+    dragStartXRef.current = touch.clientX;
+    dragStartYRef.current = touch.clientY;
+    initialOffsetRef.current = ent.xOffset || 0;
+    isHorizontalDragRef.current = false;
+  };
 
-      // Bound within canvas approximate limits (-500px to +500px)
+  useEffect(() => {
+    // Mouse move handler
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!draggingId) return;
+      const deltaX = e.clientX - dragStartXRef.current;
+      const newOffset = initialOffsetRef.current + deltaX;
       const boundedOffset = Math.max(-520, Math.min(520, newOffset));
 
       setEntities((prev) =>
@@ -144,22 +156,71 @@ export function HeightCanvas({
       );
     };
 
-    const handlePointerUp = () => {
+    const handleMouseUp = () => {
       setDraggingId(null);
     };
 
-    if (draggingId) {
-      window.addEventListener("mousemove", handlePointerMove);
-      window.addEventListener("mouseup", handlePointerUp);
-      window.addEventListener("touchmove", handlePointerMove);
-      window.addEventListener("touchend", handlePointerUp);
-    }
+    // Touch move handler with smart scroll-vs-drag detection
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 0) return;
+      const touch = e.touches[0];
+      const deltaX = touch.clientX - dragStartXRef.current;
+      const deltaY = touch.clientY - dragStartYRef.current;
+
+      // If we haven't determined drag vs scroll direction yet
+      if (!isHorizontalDragRef.current) {
+        // If vertical movement is dominant, user is scrolling the page - abort drag intent
+        if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 8) {
+          pendingTouchEntityIdRef.current = null;
+          setDraggingId(null);
+          return;
+        }
+
+        // If horizontal movement is dominant, lock into horizontal silhouette dragging
+        if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 8) {
+          if (pendingTouchEntityIdRef.current) {
+            setDraggingId(pendingTouchEntityIdRef.current);
+            isHorizontalDragRef.current = true;
+          }
+        }
+      }
+
+      // If actively dragging horizontally, prevent page scroll and update offset
+      if (isHorizontalDragRef.current && pendingTouchEntityIdRef.current) {
+        if (e.cancelable) {
+          e.preventDefault();
+        }
+        const newOffset = initialOffsetRef.current + deltaX;
+        const boundedOffset = Math.max(-520, Math.min(520, newOffset));
+
+        setEntities((prev) =>
+          prev.map((item) =>
+            item.id === pendingTouchEntityIdRef.current
+              ? { ...item, xOffset: boundedOffset }
+              : item
+          )
+        );
+      }
+    };
+
+    const handleTouchEnd = () => {
+      pendingTouchEntityIdRef.current = null;
+      isHorizontalDragRef.current = false;
+      setDraggingId(null);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    window.addEventListener("touchmove", handleTouchMove, { passive: false });
+    window.addEventListener("touchend", handleTouchEnd);
+    window.addEventListener("touchcancel", handleTouchEnd);
 
     return () => {
-      window.removeEventListener("mousemove", handlePointerMove);
-      window.removeEventListener("mouseup", handlePointerUp);
-      window.removeEventListener("touchmove", handlePointerMove);
-      window.removeEventListener("touchend", handlePointerUp);
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+      window.removeEventListener("touchmove", handleTouchMove);
+      window.removeEventListener("touchend", handleTouchEnd);
+      window.removeEventListener("touchcancel", handleTouchEnd);
     };
   }, [draggingId]);
 
@@ -490,7 +551,7 @@ export function HeightCanvas({
       {/* Interactive Visual Stage */}
       <div
         ref={canvasRef}
-        className="relative w-full h-[520px] sm:h-[580px] bg-[#fdfcf9] flex items-end justify-center pb-12 overflow-hidden border-b border-stone-200 select-none touch-none"
+        className="relative w-full h-[420px] sm:h-[580px] bg-[#fdfcf9] flex items-end justify-center pb-12 overflow-hidden border-b border-stone-200 select-none touch-pan-y"
       >
         {/* Height Measurement Grid Lines */}
         <div className="absolute inset-0 pointer-events-none">
@@ -664,7 +725,7 @@ export function HeightCanvas({
             return (
               <div
                 key={entity.id}
-                className={`absolute bottom-10 flex flex-col items-center justify-end pointer-events-auto transition-transform ${
+                className={`absolute bottom-10 flex flex-col items-center justify-end pointer-events-auto transition-transform touch-pan-y ${
                   isDraggingThis ? "cursor-grabbing z-30 scale-[1.02]" : "cursor-grab z-10"
                 }`}
                 style={{
@@ -675,11 +736,13 @@ export function HeightCanvas({
                 onMouseDown={(e) => {
                   // Only drag if not clicking buttons
                   if ((e.target as HTMLElement).closest("button")) return;
-                  handlePointerDown(entity.id, e.clientX);
+                  handleMouseDown(entity.id, e.clientX);
                 }}
                 onTouchStart={(e) => {
                   if ((e.target as HTMLElement).closest("button")) return;
-                  handlePointerDown(entity.id, e.touches[0].clientX);
+                  if (e.touches.length > 0) {
+                    handleTouchStart(entity.id, e.touches[0]);
+                  }
                 }}
               >
                 {/* Silhouette Name, Height Badge & On-Canvas Edit Icon above Head */}

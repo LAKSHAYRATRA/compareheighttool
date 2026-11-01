@@ -6,14 +6,14 @@ import { SITE_CONFIG, getCanonicalUrl, getAlternateLanguages } from "@/config/si
 const plusJakartaSans = Plus_Jakarta_Sans({
   variable: "--font-sans",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: ["400", "600", "700"],
   display: "swap",
 });
 
 const newsreader = Newsreader({
   variable: "--font-serif",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: ["500", "700"],
   style: ["normal", "italic"],
   display: "swap",
 });
@@ -21,7 +21,7 @@ const newsreader = Newsreader({
 const jetbrainsMono = JetBrains_Mono({
   variable: "--font-mono",
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
+  weight: ["500", "600"],
   display: "swap",
 });
 

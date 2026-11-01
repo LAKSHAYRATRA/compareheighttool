@@ -3,8 +3,6 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   /* config options here */
   trailingSlash: false,
-  cacheComponents: true,
-  partialPrefetching: true,
   async redirects() {
     return [
       {
